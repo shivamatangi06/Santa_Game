@@ -32,7 +32,7 @@ const ADMIN_EMAIL = "grootsanta@gmail.in";
 let pickNames = [];
 let displayingPicked = false;
 
-/* AUTO-REFRESH LISTENER (fires on all devices when admin resets) */
+/* AUTO-REFRESH LISTENER (all devices auto-refresh on admin reset) */
 function listenForResetFlag() {
   const resetRef = doc(db, "config", "resetFlag");
   onSnapshot(resetRef, (snap) => {
@@ -42,9 +42,8 @@ function listenForResetFlag() {
     const lastReset = localStorage.getItem("lastResetTime");
 
     if (data.time !== lastReset) {
-      // Save so reload occurs only once
       localStorage.setItem("lastResetTime", data.time);
-      location.reload();   // 🔄 AUTO REFRESH DEVICE
+      location.reload();   // 🔄 AUTO REFRESH
     }
   });
 }
@@ -88,7 +87,7 @@ async function seedNamesIfEmpty() {
   }
 }
 
-/* Firestore listener for names */
+/* Listen for Firestore changes */
 function listenNames() {
   const ref = collection(db, NAMES_COLLECTION);
   const q = query(ref, orderBy("addedAt"));
@@ -122,12 +121,12 @@ function listenNames() {
       pickBox.style.backgroundColor = "#1e78c8";
       pickBox.style.color = "#e9f6ff";
       message.textContent = "";
-      if (pickedName) localStorage.removeItem("pickedName");
+      // ⚠ Do NOT remove localStorage here
     }
   });
 }
 
-/* PICK NAME FUNCTION */
+/* PICK NAME FUNCTION — FIXED */
 async function pickName() {
   if (!pickNames.length || displayingPicked || localStorage.getItem("pickedName")) return;
 
@@ -137,6 +136,7 @@ async function pickName() {
   pickBox.style.backgroundColor = "#3ba1ff";
   pickBox.style.color = "#e9f7ff";
 
+  // Rolling animation
   await new Promise(resolve => {
     const startTime = Date.now();
     const interval = setInterval(() => {
@@ -163,12 +163,19 @@ async function pickName() {
   pickBox.classList.add("revealed");
   pickBox.textContent = picked.name;
 
+  // Save name to localStorage FIRST
   localStorage.setItem("pickedName", picked.name);
+
+  // Ensure browser writes before deleting Firestore
+  await new Promise(res => setTimeout(res, 60));
+
+  // Delete from Firestore
   await deleteDoc(doc(db, NAMES_COLLECTION, picked.id));
+
   pickNames.splice(idx, 1);
 }
 
-/* ADMIN LOGIN */
+/* ADMIN LOGIN — Only admin can reset */
 adminPanelBtn.addEventListener("click", async () => {
   const email = prompt("Enter admin email:");
   const password = prompt("Enter admin password:");
@@ -187,7 +194,7 @@ adminPanelBtn.addEventListener("click", async () => {
   }
 });
 
-/* RESET BUTTON (ADMIN) */
+/* RESET BUTTON — Admin only */
 resetBtn.addEventListener("click", async () => {
   if (!confirm("Are you sure you want to reset all names?")) return;
 
@@ -196,20 +203,20 @@ resetBtn.addEventListener("click", async () => {
   pickBox.textContent = "Resetting...";
   message.textContent = "";
 
+  // Delete all names
   const snap = await getDocs(collection(db, NAMES_COLLECTION));
   await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
 
-  await Promise.all(initialNames.map(name =>
-    addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })
-  ));
+  // Re-insert initial names
+  await Promise.all(initialNames.map(name => addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })));
 
+  // Clear localStorage
   localStorage.removeItem("pickedName");
 
-  /* 🔥 AUTO REFRESH TRIGGER FOR ALL DEVICES */
-  await setDoc(doc(db, "config", "resetFlag"), {
-    time: Date.now().toString()
-  });
+  // Update reset flag for auto-refresh on all devices
+  await setDoc(doc(db, "config", "resetFlag"), { time: Date.now().toString() });
 
+  // Reset UI
   pickBox.textContent = "Click to find Santa Child";
   pickBox.disabled = false;
   pickBox.classList.remove("disabled");
@@ -221,9 +228,9 @@ resetBtn.addEventListener("click", async () => {
   resetBtn.disabled = false;
 });
 
-/* Initialize App */
+/* Initialize */
 seedNamesIfEmpty().then(() => {
-  listenForResetFlag();  // 🔄 Start auto-refresh listener
-  listenNames();         // 🔥 Start Firestore listener
+  listenForResetFlag();  // Auto-refresh listener
+  listenNames();         // Firestore names listener
 });
 pickBox.addEventListener("click", pickName);
