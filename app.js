@@ -36,27 +36,26 @@ function createSnowflake() {
   const s = document.createElement("div");
   s.className = "snowflake";
   s.style.left = Math.random() * window.innerWidth + "px";
-  const size = 10 + Math.random() * 10;
-  s.style.fontSize = size + "px";
-  s.style.animationDuration = 4 + Math.random() * 4 + "s";
+  s.style.fontSize = 15 + Math.random() * 14 + "px";
+  s.style.animationDuration = 4 + Math.random() * 3 + "s";
   s.textContent = "❄";
   s.style.color = "#fff";
   document.body.appendChild(s);
-  setTimeout(() => s.remove(), parseFloat(s.style.animationDuration)*1000);
+  setTimeout(() => s.remove(), 8000);
 }
-setInterval(createSnowflake, window.innerWidth < 600 ? 500 : 300);
+setInterval(createSnowflake, window.innerWidth < 600 ? 600 : 300);
 
 function createStar() {
   const star = document.createElement("div");
   star.className = "star";
-  const size = 1 + Math.random()*3;
+  const size = Math.random() * 3 + 1;
   star.style.width = size + "px";
   star.style.height = size + "px";
   star.style.top = Math.random() * window.innerHeight + "px";
   star.style.left = Math.random() * window.innerWidth + "px";
-  star.style.animationDuration = 1 + Math.random()*2 + "s";
+  star.style.animationDuration = 1 + Math.random() * 3 + "s";
   document.body.appendChild(star);
-  setTimeout(() => star.remove(), parseFloat(star.style.animationDuration)*1000);
+  setTimeout(() => star.remove(), 10000);
 }
 setInterval(createStar, 300);
 
@@ -77,15 +76,20 @@ function listenNames() {
   const q = query(ref, orderBy("addedAt"));
   onSnapshot(q, snapshot => {
     pickNames = snapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
+
     const pickedName = localStorage.getItem("pickedName");
 
-    if (pickedName) {
+    if (pickedName && !pickNames.find(p => p.name === pickedName)) {
       pickBox.textContent = pickedName;
       pickBox.disabled = true;
       pickBox.classList.add("disabled");
       pickBox.style.backgroundColor = "#7fd4ff";
       pickBox.style.color = "#002f55";
-      message.textContent = "Your Santa Child is:";
+     message.textContent = "Your Santa child is:";
+message.classList.remove("pop"); // restart animation
+void message.offsetWidth;        // force reflow
+message.classList.add("pop");
+
     } else if (pickNames.length === 0) {
       pickBox.textContent = "All Child paired! 🎉";
       pickBox.disabled = true;
@@ -98,6 +102,7 @@ function listenNames() {
       pickBox.style.backgroundColor = "#1e78c8";
       pickBox.style.color = "#e9f6ff";
       message.textContent = "";
+      if (pickedName) localStorage.removeItem("pickedName");
     }
   });
 }
@@ -112,7 +117,6 @@ async function pickName() {
   pickBox.style.backgroundColor = "#3ba1ff";
   pickBox.style.color = "#e9f7ff";
 
-  // Rolling animation for 5 seconds
   await new Promise(resolve => {
     const rollInterval = 200;
     const startTime = Date.now();
@@ -126,26 +130,26 @@ async function pickName() {
     }, rollInterval);
   });
 
-  if (!pickNames.length) return;
+  if (!pickNames.length) {
+    displayingPicked = false;
+    pickBox.textContent = "All Child paired! 🎉";
+    return;
+  }
+
   const idx = Math.floor(Math.random() * pickNames.length);
   const picked = pickNames[idx];
 
-  // Show picked name
   pickBox.style.backgroundColor = "#7fd4ff";
   pickBox.style.color = "#002f55";
   pickBox.classList.add("revealed");
   pickBox.textContent = picked.name;
-  message.textContent = "Your Santa Child is:";
 
   localStorage.setItem("pickedName", picked.name);
-
   await deleteDoc(doc(db, NAMES_COLLECTION, picked.id));
   pickNames.splice(idx, 1);
-
-  displayingPicked = false;
 }
 
-/* ADMIN LOGIN */
+/* ADMIN LOGIN — Only admin can reset */
 adminPanelBtn.addEventListener("click", async () => {
   const email = prompt("Enter admin email:");
   const password = prompt("Enter admin password:");
@@ -154,17 +158,17 @@ adminPanelBtn.addEventListener("click", async () => {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     if (userCredential.user.email === ADMIN_EMAIL) {
-      resetBtn.style.display = "inline-block";
-      alert("Admin logged in! Reset button visible.");
+      resetBtn.style.display = "inline-block"; // Show reset button only to admin
+      alert("Admin logged in! Reset button is now visible.");
     } else {
-      alert("Invalid admin email.");
+      alert("You are not authorized as admin.");
     }
   } catch (e) {
     alert("Login failed: " + e.message);
   }
 });
 
-/* RESET BUTTON */
+/* RESET BUTTON — Admin only */
 resetBtn.addEventListener("click", async () => {
   if (!confirm("Are you sure you want to reset all names?")) return;
 
@@ -173,20 +177,25 @@ resetBtn.addEventListener("click", async () => {
   pickBox.textContent = "Resetting...";
   message.textContent = "";
 
+  // Delete all names in Firestore
   const snap = await getDocs(collection(db, NAMES_COLLECTION));
   await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
+
+  // Re-insert initial names
   await Promise.all(initialNames.map(name => addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })));
 
-  localStorage.removeItem("pickedName");
+  localStorage.removeItem("pickedName"); // Clear this device
 
+  // Firestore snapshot listener will update all devices automatically
   pickBox.textContent = "Click to find Santa Child";
   pickBox.disabled = false;
   pickBox.classList.remove("disabled");
   pickBox.style.backgroundColor = "#1e78c8";
   pickBox.style.color = "#e9f6ff";
   message.textContent = "";
-  resetBtn.disabled = false;
+
   resetBtn.style.display = "none";
+  resetBtn.disabled = false;
 });
 
 /* Initialize */
