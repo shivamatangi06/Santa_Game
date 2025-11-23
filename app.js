@@ -1,6 +1,6 @@
 /* Firebase imports */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
-import { getFirestore, collection, addDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js";
 
@@ -19,6 +19,7 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 try { getAnalytics(app); } catch(e){}
 
+/* Constants */
 const NAMES_COLLECTION = "christmas_names";
 const initialNames = ["Keerthy","Manisha","Lindsa","Abhishek","Akhilesh","Gopi","Pavan","Santosh","Guru","Balaji","Vedant","Kaushal"];
 
@@ -30,6 +31,23 @@ const ADMIN_EMAIL = "grootsanta@gmail.in";
 
 let pickNames = [];
 let displayingPicked = false;
+
+/* AUTO-REFRESH LISTENER (fires on all devices when admin resets) */
+function listenForResetFlag() {
+  const resetRef = doc(db, "config", "resetFlag");
+  onSnapshot(resetRef, (snap) => {
+    if (!snap.exists()) return;
+
+    const data = snap.data();
+    const lastReset = localStorage.getItem("lastResetTime");
+
+    if (data.time !== lastReset) {
+      // Save so reload occurs only once
+      localStorage.setItem("lastResetTime", data.time);
+      location.reload();   // 🔄 AUTO REFRESH DEVICE
+    }
+  });
+}
 
 /* Snowflakes & Stars */
 function createSnowflake() {
@@ -70,7 +88,7 @@ async function seedNamesIfEmpty() {
   }
 }
 
-/* Listen for Firestore changes */
+/* Firestore listener for names */
 function listenNames() {
   const ref = collection(db, NAMES_COLLECTION);
   const q = query(ref, orderBy("addedAt"));
@@ -85,16 +103,18 @@ function listenNames() {
       pickBox.classList.add("disabled");
       pickBox.style.backgroundColor = "#7fd4ff";
       pickBox.style.color = "#002f55";
-     message.textContent = "Your Santa child is:";
-message.classList.remove("pop"); // restart animation
-void message.offsetWidth;        // force reflow
-message.classList.add("pop");
+
+      message.textContent = "Your Santa child is:";
+      message.classList.remove("pop");
+      void message.offsetWidth;
+      message.classList.add("pop");
 
     } else if (pickNames.length === 0) {
       pickBox.textContent = "All Child paired! 🎉";
       pickBox.disabled = true;
       pickBox.classList.add("disabled");
       message.textContent = "";
+
     } else {
       pickBox.textContent = "Click to find Santa Child";
       pickBox.disabled = false;
@@ -118,7 +138,6 @@ async function pickName() {
   pickBox.style.color = "#e9f7ff";
 
   await new Promise(resolve => {
-    const rollInterval = 200;
     const startTime = Date.now();
     const interval = setInterval(() => {
       const idx = Math.floor(Math.random() * initialNames.length);
@@ -127,7 +146,7 @@ async function pickName() {
         clearInterval(interval);
         resolve();
       }
-    }, rollInterval);
+    }, 200);
   });
 
   if (!pickNames.length) {
@@ -149,7 +168,7 @@ async function pickName() {
   pickNames.splice(idx, 1);
 }
 
-/* ADMIN LOGIN — Only admin can reset */
+/* ADMIN LOGIN */
 adminPanelBtn.addEventListener("click", async () => {
   const email = prompt("Enter admin email:");
   const password = prompt("Enter admin password:");
@@ -158,7 +177,7 @@ adminPanelBtn.addEventListener("click", async () => {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     if (userCredential.user.email === ADMIN_EMAIL) {
-      resetBtn.style.display = "inline-block"; // Show reset button only to admin
+      resetBtn.style.display = "inline-block";
       alert("Admin logged in! Reset button is now visible.");
     } else {
       alert("You are not authorized as admin.");
@@ -168,7 +187,7 @@ adminPanelBtn.addEventListener("click", async () => {
   }
 });
 
-/* RESET BUTTON — Admin only */
+/* RESET BUTTON (ADMIN) */
 resetBtn.addEventListener("click", async () => {
   if (!confirm("Are you sure you want to reset all names?")) return;
 
@@ -177,16 +196,20 @@ resetBtn.addEventListener("click", async () => {
   pickBox.textContent = "Resetting...";
   message.textContent = "";
 
-  // Delete all names in Firestore
   const snap = await getDocs(collection(db, NAMES_COLLECTION));
   await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
 
-  // Re-insert initial names
-  await Promise.all(initialNames.map(name => addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })));
+  await Promise.all(initialNames.map(name =>
+    addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })
+  ));
 
-  localStorage.removeItem("pickedName"); // Clear this device
+  localStorage.removeItem("pickedName");
 
-  // Firestore snapshot listener will update all devices automatically
+  /* 🔥 AUTO REFRESH TRIGGER FOR ALL DEVICES */
+  await setDoc(doc(db, "config", "resetFlag"), {
+    time: Date.now().toString()
+  });
+
   pickBox.textContent = "Click to find Santa Child";
   pickBox.disabled = false;
   pickBox.classList.remove("disabled");
@@ -198,6 +221,9 @@ resetBtn.addEventListener("click", async () => {
   resetBtn.disabled = false;
 });
 
-/* Initialize */
-seedNamesIfEmpty().then(() => listenNames());
+/* Initialize App */
+seedNamesIfEmpty().then(() => {
+  listenForResetFlag();  // 🔄 Start auto-refresh listener
+  listenNames();         // 🔥 Start Firestore listener
+});
 pickBox.addEventListener("click", pickName);
