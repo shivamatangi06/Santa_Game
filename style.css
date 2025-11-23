@@ -22,7 +22,6 @@ h1 {
   margin-bottom: 20px;
   background: linear-gradient(90deg, #b9eaff, #e1f5ff);
   -webkit-background-clip: text;
-  /* -webkit-text-fill-color: transparent; */
   text-shadow: 0 0 10px rgba(180, 230, 255, 0.7);
 }
 
@@ -32,6 +31,7 @@ h1 {
   margin-bottom: 15px;
   color: #cfeaff;
   text-shadow: 0 0 8px rgba(200, 240, 255, 0.8);
+  min-height: 1.5em; /* Prevent layout shift */
   transition: opacity 0.5s ease;
 }
 
@@ -46,13 +46,10 @@ h1 {
   transition: all 0.5s ease;
   border: none;
   outline: none;
-
   background: linear-gradient(135deg, #1e78c8, #4ab0ff);
   color: #e9f6ff;
-
   box-shadow: 0 0 15px rgba(120, 200, 255, 0.9),
               inset 0 0 20px rgba(90, 170, 255, 0.7);
-
   min-width: 200px;
   margin-bottom: 20px;
 }
@@ -70,13 +67,12 @@ h1 {
   box-shadow: none;
 }
 
-/* Reveal animation color */
 #pickBox.revealed {
   background: linear-gradient(135deg, #5ccfff, #b6eaff);
   color: #003a66;
 }
 
-/* ADMIN + RESET BUTTONS — updated to icy theme */
+/* ADMIN + RESET BUTTONS — icy theme */
 #adminPanelBtn, #resetBtn {
   margin-top: 10px;
   padding: 10px 5vw;
@@ -84,10 +80,8 @@ h1 {
   border-radius: 10px;
   border: none;
   cursor: pointer;
-
   background: linear-gradient(135deg, #4ea8ff, #7fd4ff);
   color: #eaf8ff;
-
   box-shadow: 0 0 10px rgba(150, 220, 255, 0.8);
   transition: 0.4s;
 }
