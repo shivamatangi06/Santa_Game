@@ -36,26 +36,27 @@ function createSnowflake() {
   const s = document.createElement("div");
   s.className = "snowflake";
   s.style.left = Math.random() * window.innerWidth + "px";
-  s.style.fontSize = 15 + Math.random() * 14 + "px";
-  s.style.animationDuration = 4 + Math.random() * 3 + "s";
+  const size = 10 + Math.random() * 10;
+  s.style.fontSize = size + "px";
+  s.style.animationDuration = 4 + Math.random() * 4 + "s";
   s.textContent = "❄";
   s.style.color = "#fff";
   document.body.appendChild(s);
-  setTimeout(() => s.remove(), 8000);
+  setTimeout(() => s.remove(), parseFloat(s.style.animationDuration)*1000);
 }
-setInterval(createSnowflake, window.innerWidth < 600 ? 600 : 300);
+setInterval(createSnowflake, window.innerWidth < 600 ? 500 : 300);
 
 function createStar() {
   const star = document.createElement("div");
   star.className = "star";
-  const size = Math.random() * 3 + 1;
+  const size = 1 + Math.random()*3;
   star.style.width = size + "px";
   star.style.height = size + "px";
   star.style.top = Math.random() * window.innerHeight + "px";
   star.style.left = Math.random() * window.innerWidth + "px";
-  star.style.animationDuration = 1 + Math.random() * 3 + "s";
+  star.style.animationDuration = 1 + Math.random()*2 + "s";
   document.body.appendChild(star);
-  setTimeout(() => star.remove(), 10000);
+  setTimeout(() => star.remove(), parseFloat(star.style.animationDuration)*1000);
 }
 setInterval(createStar, 300);
 
@@ -76,8 +77,6 @@ function listenNames() {
   const q = query(ref, orderBy("addedAt"));
   onSnapshot(q, snapshot => {
     pickNames = snapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
-
-    // If user already picked on this device
     const pickedName = localStorage.getItem("pickedName");
 
     if (pickedName) {
@@ -86,7 +85,7 @@ function listenNames() {
       pickBox.classList.add("disabled");
       pickBox.style.backgroundColor = "#7fd4ff";
       pickBox.style.color = "#002f55";
-      message.textContent = "Your Santa child is:";
+      message.textContent = "Your Santa Child is:";
     } else if (pickNames.length === 0) {
       pickBox.textContent = "All Child paired! 🎉";
       pickBox.disabled = true;
@@ -127,29 +126,23 @@ async function pickName() {
     }, rollInterval);
   });
 
-  // Pick a name from remaining
-  if (!pickNames.length) {
-    displayingPicked = false;
-    pickBox.textContent = "All Child paired! 🎉";
-    return;
-  }
-
+  if (!pickNames.length) return;
   const idx = Math.floor(Math.random() * pickNames.length);
   const picked = pickNames[idx];
 
-  // Show picked name in button
+  // Show picked name
   pickBox.style.backgroundColor = "#7fd4ff";
   pickBox.style.color = "#002f55";
   pickBox.classList.add("revealed");
   pickBox.textContent = picked.name;
+  message.textContent = "Your Santa Child is:";
 
-  // Store picked name in localStorage for persistence
   localStorage.setItem("pickedName", picked.name);
 
-  // Remove picked name from Firestore
   await deleteDoc(doc(db, NAMES_COLLECTION, picked.id));
   pickNames.splice(idx, 1);
 
+  displayingPicked = false;
 }
 
 /* ADMIN LOGIN */
@@ -180,14 +173,10 @@ resetBtn.addEventListener("click", async () => {
   pickBox.textContent = "Resetting...";
   message.textContent = "";
 
-  // Delete all names in Firestore
   const snap = await getDocs(collection(db, NAMES_COLLECTION));
   await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
-
-  // Re-insert all initial names
   await Promise.all(initialNames.map(name => addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })));
 
-  // Clear localStorage so devices can pick again
   localStorage.removeItem("pickedName");
 
   pickBox.textContent = "Click to find Santa Child";
@@ -202,5 +191,4 @@ resetBtn.addEventListener("click", async () => {
 
 /* Initialize */
 seedNamesIfEmpty().then(() => listenNames());
-
 pickBox.addEventListener("click", pickName);
