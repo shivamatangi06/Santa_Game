@@ -52,8 +52,8 @@ function listenForResetFlag() {
 
         // If the reset time is different, refresh the page to reflect reset
         if (data.time !== lastReset) {
-            localStorage.setItem("lastResetTime", data.time);
-            location.reload(); // Auto-refresh after reset to reflect updated state
+            localStorage.setItem("lastResetTime", data.time);  // Store the reset time in localStorage
+            location.reload();  // Auto-refresh after reset to reflect updated state
         }
     });
 }
@@ -150,7 +150,7 @@ async function pickName() {
     pickBox.style.color = "#e9f6ff";
     message.textContent = "Meet your Santa child :";
 
-    localStorage.setItem("pickedName", picked.name);
+    localStorage.setItem("pickedName", picked.name);  // Store the picked name in localStorage
 
     await deleteDoc(doc(db, NAMES_COLLECTION, picked.id));
     pickNames.splice(finalIdx, 1);
@@ -184,18 +184,19 @@ resetBtn.addEventListener("click", async () => {
 
     resetBtn.style.display = "none";
 
-    localStorage.removeItem("pickedName");
+    // Clear localStorage on all devices
+    localStorage.removeItem("pickedName");  // Clear picked name from localStorage
 
-    // Delete all existing names
+    // Delete all existing names from Firestore
     const snap = await getDocs(collection(db, NAMES_COLLECTION));
     await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
 
-    // Add initial names back
+    // Add initial names back to Firestore
     await Promise.all(initialNames.map(name =>
         addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })
     ));
 
-    // Set the reset flag so other clients know
+    // Set the reset flag so other clients know about the reset
     await setDoc(doc(db, "config", "resetFlag"), { time: Date.now().toString() });
 
     // Notify that the reset was successful and refresh all clients
@@ -218,7 +219,7 @@ function createSnowflake() {
 setInterval(createSnowflake, window.innerWidth < 600 ? 600 : 300);
 
 seedNamesIfEmpty().then(() => {
-    listenForResetFlag();
+    listenForResetFlag();  // Start listening for reset flag updates in real-time
     listenNames();
 });
 
