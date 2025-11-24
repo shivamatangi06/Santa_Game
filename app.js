@@ -39,9 +39,11 @@ function listenForResetFlag() {
         if (!snap.exists()) return;
         const data = snap.data();
         const lastReset = localStorage.getItem("lastResetTime");
+
+        // If the reset time is different, refresh the page to reflect reset
         if (data.time !== lastReset) {
             localStorage.setItem("lastResetTime", data.time);
-            location.reload(); // auto-refresh after reset
+            location.reload(); // Auto-refresh after reset to reflect updated state
         }
     });
 }
@@ -63,6 +65,7 @@ function listenNames() {
     const q = query(ref, orderBy("addedAt"));
     onSnapshot(q, snapshot => {
         pickNames = snapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
+
         const pickedName = localStorage.getItem("pickedName");
 
         if (pickedName && !pickNames.find(p => p.name === pickedName)) {
@@ -172,15 +175,19 @@ resetBtn.addEventListener("click", async () => {
 
     localStorage.removeItem("pickedName");
 
+    // Delete all existing names
     const snap = await getDocs(collection(db, NAMES_COLLECTION));
     await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
 
+    // Add initial names back
     await Promise.all(initialNames.map(name =>
         addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })
     ));
 
+    // Set the reset flag so other clients know
     await setDoc(doc(db, "config", "resetFlag"), { time: Date.now().toString() });
 
+    // Notify that the reset was successful and refresh all clients
     location.reload();
 });
 
