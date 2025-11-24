@@ -1,6 +1,6 @@
 /* Firebase imports */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
-import { getFirestore, collection, addDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc, setDoc, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js";
 
@@ -18,6 +18,16 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 try { getAnalytics(app); } catch (e) {}
+
+/* Enable Firestore offline persistence */
+enableIndexedDbPersistence(db)
+    .catch((err) => {
+        if (err.code === 'failed-precondition') {
+            console.log("Persistence failed");
+        } else if (err.code === 'unimplemented') {
+            console.log("Persistence is not available");
+        }
+    });
 
 /* Constants */
 const NAMES_COLLECTION = "christmas_names";
@@ -68,6 +78,7 @@ function listenNames() {
 
         const pickedName = localStorage.getItem("pickedName");
 
+        // If a picked name exists but it's no longer in the list, show it
         if (pickedName && !pickNames.find(p => p.name === pickedName)) {
             showPickedName(pickedName);
         } else if (pickNames.length === 0) {
