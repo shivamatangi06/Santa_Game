@@ -1,10 +1,14 @@
-/* Firebase imports */
+/* ------------------------------- FIREBASE IMPORTS ------------------------------- */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
-import { getFirestore, collection, addDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc, setDoc, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+import { 
+    getFirestore, collection, addDoc, deleteDoc, getDocs, 
+    onSnapshot, query, orderBy, serverTimestamp, doc, 
+    setDoc, enableIndexedDbPersistence, runTransaction
+} from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js";
 
-/* Firebase Config */
+/* ------------------------------- FIREBASE CONFIG ------------------------------- */
 const firebaseConfig = {
     apiKey: "AIzaSyCNc-y_OHfX_5Ryo8G_ldUYHn5702dx_NA",
     authDomain: "christmas-santa-name-picker.firebaseapp.com",
@@ -19,49 +23,52 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 try { getAnalytics(app); } catch (e) {}
 
-/* Enable Firestore offline persistence */
-enableIndexedDbPersistence(db)
-    .catch((err) => {
-        if (err.code === 'failed-precondition') {
-            console.log("Persistence failed");
-        } else if (err.code === 'unimplemented') {
-            console.log("Persistence is not available");
-        }
-    });
+/* Enable offline persistence */
+enableIndexedDbPersistence(db).catch(() => {});
 
-/* Constants */
+/* ------------------------------- CONSTANTS ------------------------------- */
 const NAMES_COLLECTION = "christmas_names";
-const initialNames = ["Keerthy", "Manisha", "Lindsa", "Abhishek", "Akhilesh", "Gopi", "Pavan", "Santosh", "Guru", "Balaji", "Vedant", "Kaushal"];
+const initialNames = [
+    "Keerthy", "Manisha", "Lindsa", "Abhishek", "Akhilesh",
+    "Gopi", "Pavan", "Santosh", "Guru", "Balaji", "Vedant", "Kaushal"
+];
+const ADMIN_EMAIL = "grootsanta@gmail.in";
 
+/* DOM Elements */
 const pickBox = document.getElementById("pickBox");
 const message = document.getElementById("message");
 const resetBtn = document.getElementById("resetBtn");
 const adminPanelBtn = document.getElementById("adminPanelBtn");
-const ADMIN_EMAIL = "grootsanta@gmail.in";
 
 let pickNames = [];
 let displayingPicked = false;
 
-/* ------------------------ LISTEN FOR RESET FLAG ------------------------ */
+/* ------------------------------- RESET FLAG LISTENER ------------------------------- */
 function listenForResetFlag() {
     const resetRef = doc(db, "config", "resetFlag");
+
     onSnapshot(resetRef, (snap) => {
         if (!snap.exists()) return;
+
         const data = snap.data();
         const lastReset = localStorage.getItem("lastResetTime");
 
-        // If the reset time is different, refresh the page to reflect reset
         if (data.time !== lastReset) {
-            localStorage.setItem("lastResetTime", data.time);  // Store the reset time in localStorage
-            location.reload();  // Auto-refresh after reset to reflect updated state
+
+            localStorage.removeItem("pickedName");
+
+            localStorage.setItem("lastResetTime", data.time);
+
+            location.reload();
         }
     });
 }
 
-/* ------------------------ SEED NAMES IF EMPTY ------------------------ */
+/* ------------------------------- SEED NAMES ------------------------------- */
 async function seedNamesIfEmpty() {
     const ref = collection(db, NAMES_COLLECTION);
     const snap = await getDocs(ref);
+
     if (snap.empty) {
         for (const name of initialNames) {
             await addDoc(ref, { name, addedAt: serverTimestamp() });
@@ -69,64 +76,79 @@ async function seedNamesIfEmpty() {
     }
 }
 
-/* ------------------------ LISTEN NAMES FROM FIRESTORE ------------------------ */
+/* ------------------------------- REAL-TIME NAME LISTENER ------------------------------- */
 function listenNames() {
     const ref = collection(db, NAMES_COLLECTION);
     const q = query(ref, orderBy("addedAt"));
-    onSnapshot(q, snapshot => {
+
+    onSnapshot(q, (snapshot) => {
         pickNames = snapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
 
         const pickedName = localStorage.getItem("pickedName");
 
-        // If a picked name exists but it's no longer in the list, show it
         if (pickedName && !pickNames.find(p => p.name === pickedName)) {
             showPickedName(pickedName);
-        } else if (pickNames.length === 0) {
+        }
+        else if (pickNames.length === 0) {
             pickBox.textContent = "All children have been successfully paired!";
             pickBox.disabled = true;
             pickBox.classList.add("disabled");
-            message.textContent = "";
-        } else {
-            pickBox.textContent = "Click to choose your child";
-            pickBox.disabled = false;
-            pickBox.classList.remove("disabled");
             pickBox.style.backgroundColor = "#1e78c8";
-            pickBox.style.color = "#e9f6ff";
             message.textContent = "";
+        }
+        else {
+            if (!localStorage.getItem("pickedName")) resetPickUI();
         }
     });
 }
 
-/* ------------------------ SHOW PICKED NAME ------------------------ */
+function resetPickUI() {
+    pickBox.textContent = "Click to choose your child";
+    pickBox.disabled = false;
+    pickBox.classList.remove("disabled");
+    pickBox.style.backgroundColor = "#1e78c8";
+    pickBox.style.color = "#e9f6ff";
+    pickBox.style.pointerEvents = "auto";
+    message.textContent = "";
+}
+
+/* ------------------------------- SHOW PICKED NAME ------------------------------- */
 function showPickedName(name) {
     pickBox.textContent = name;
     pickBox.disabled = true;
     pickBox.classList.add("disabled");
     pickBox.style.backgroundColor = "#1e78c8";
     pickBox.style.color = "#e9f6ff";
-    message.textContent = "Meet your Santa child :"; 
-    message.classList.add("pop");  
-    setTimeout(() => message.classList.remove("pop"), 600); 
+    pickBox.style.pointerEvents = "none";
+    message.textContent = "Meet your Santa child:";
 }
 
-/* ------------------------ PICK NAME ------------------------ */
+/* ------------------------------- PICK NAME (FINAL VERSION) ------------------------------- */
 async function pickName() {
-    if (!pickNames.length || displayingPicked || localStorage.getItem("pickedName")) return;
+    if (displayingPicked || localStorage.getItem("pickedName") || !pickNames.length) return;
 
     displayingPicked = true;
+
     pickBox.disabled = true;
     pickBox.classList.add("disabled");
-    pickBox.style.backgroundColor = "#3ba1ff"; 
-    pickBox.style.color = "#ffffff";
+    pickBox.style.pointerEvents = "none";
+    pickBox.style.backgroundColor = "#3ba1ff";
+
+    /* --------------------------------------------------------
+       ROLLING ANIMATION USING ALL INITIAL NAMES IN ORDER
+       -------------------------------------------------------- */
+    const namesToRoll = initialNames.slice();
+    let index = 0;
 
     const rollDuration = 3000;
-    const intervalTime = 200;  
+    const intervalTime = 120;
     let elapsed = 0;
 
     await new Promise(resolve => {
         const interval = setInterval(() => {
-            const idx = Math.floor(Math.random() * initialNames.length);
-            pickBox.textContent = initialNames[idx];
+            pickBox.textContent = namesToRoll[index];
+            index = (index + 1) % namesToRoll.length;
+
             elapsed += intervalTime;
             if (elapsed >= rollDuration) {
                 clearInterval(interval);
@@ -135,29 +157,58 @@ async function pickName() {
         }, intervalTime);
     });
 
+    /* --------------------------------------------------------
+       FINAL PICK (from remaining names)
+       -------------------------------------------------------- */
     if (!pickNames.length) {
         displayingPicked = false;
-        pickBox.textContent = "All children have been successfully paired!";
+        resetPickUI();
         return;
     }
 
     const finalIdx = Math.floor(Math.random() * pickNames.length);
-    const picked = pickNames[finalIdx];
+    const candidate = pickNames[finalIdx];
 
-    pickBox.textContent = picked.name;
-    pickBox.disabled = true;
-    pickBox.style.backgroundColor = "#1e78c8"; 
+    pickBox.textContent = candidate.name;
+    pickBox.style.backgroundColor = "#1e78c8";
     pickBox.style.color = "#e9f6ff";
-    message.textContent = "Meet your Santa child :";
+    message.textContent = "Meet your Santa child:";
 
-    localStorage.setItem("pickedName", picked.name);  // Store the picked name in localStorage
+    /* --------------------------------------------------------
+       MAKE PICK SAFE USING FIRESTORE TRANSACTION
+       -------------------------------------------------------- */
+    try {
+        await runTransaction(db, async (tx) => {
+            const docRef = doc(db, NAMES_COLLECTION, candidate.id);
+            const snap = await tx.get(docRef);
+            if (!snap.exists()) {
+                throw new Error("Someone already picked this name!");
+            }
+            tx.delete(docRef);
+        });
 
-    await deleteDoc(doc(db, NAMES_COLLECTION, picked.id));
-    pickNames.splice(finalIdx, 1);
+        localStorage.setItem("pickedName", candidate.name);
+
+        pickNames.splice(finalIdx, 1);
+
+    } catch (err) {
+        message.textContent = "Pick failed. Try again!";
+        console.warn(err);
+
+        setTimeout(() => {
+            displayingPicked = false;
+            resetPickUI();
+        }, 800);
+
+        return;
+    }
+
     displayingPicked = false;
+    pickBox.disabled = true;
+    pickBox.style.pointerEvents = "none";
 }
 
-/* ------------------------ ADMIN LOGIN ------------------------ */
+/* ------------------------------- ADMIN LOGIN ------------------------------- */
 adminPanelBtn.addEventListener("click", async () => {
     const email = prompt("Enter admin email:");
     const password = prompt("Enter admin password:");
@@ -166,50 +217,48 @@ adminPanelBtn.addEventListener("click", async () => {
     try {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         if (userCredential.user.email === ADMIN_EMAIL) {
-            resetBtn.style.display = "inline-block"; 
-            resetBtn.disabled = false;
-            resetBtn.style.pointerEvents = "auto";
-            alert("Admin logged in! Reset button is now visible.");
+            resetBtn.style.display = "inline-block";
+            alert("Admin logged in! Reset enabled.");
         } else {
-            alert("You are not authorized as admin.");
+            alert("Unauthorized user.");
         }
     } catch (e) {
         alert("Login failed: " + e.message);
     }
 });
 
-/* ------------------------ RESET BUTTON ------------------------ */
+/* ------------------------------- RESET BUTTON ------------------------------- */
 resetBtn.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to reset all names?")) return;
+    if (!confirm("Are you sure you want to reset everything?")) return;
 
     resetBtn.style.display = "none";
 
-    // Clear localStorage on all devices
-    localStorage.removeItem("pickedName");  // Clear picked name from localStorage
+    localStorage.removeItem("pickedName");
 
-    // Delete all existing names from Firestore
     const snap = await getDocs(collection(db, NAMES_COLLECTION));
     await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
 
-    // Add initial names back to Firestore
     await Promise.all(initialNames.map(name =>
-        addDoc(collection(db, NAMES_COLLECTION), { name, addedAt: serverTimestamp() })
+        addDoc(collection(db, NAMES_COLLECTION), {
+            name,
+            addedAt: serverTimestamp()
+        })
     ));
 
-    // Set the reset flag so other clients know about the reset
-    await setDoc(doc(db, "config", "resetFlag"), { time: Date.now().toString() });
+    await setDoc(doc(db, "config", "resetFlag"), {
+        time: Date.now().toString()
+    });
 
-    // Notify that the reset was successful and refresh all clients
     location.reload();
 });
 
-/* ------------------------ SNOWFALL EFFECT ------------------------ */
+/* ------------------------------- SNOWFALL EFFECT ------------------------------- */
 function createSnowflake() {
     const s = document.createElement("div");
     s.className = "snowflake";
     s.style.left = Math.random() * window.innerWidth + "px";
-    s.style.fontSize = 15 + Math.random() * 14 + "px";
-    s.style.animationDuration = 4 + Math.random() * 3 + "s";
+    s.style.fontSize = `${15 + Math.random() * 14}px`;
+    s.style.animationDuration = `${4 + Math.random() * 3}s`;
     s.textContent = "❄";
     s.style.color = "#fff";
     document.body.appendChild(s);
@@ -218,8 +267,9 @@ function createSnowflake() {
 
 setInterval(createSnowflake, window.innerWidth < 600 ? 600 : 300);
 
+/* ------------------------------- INIT ------------------------------- */
 seedNamesIfEmpty().then(() => {
-    listenForResetFlag();  // Start listening for reset flag updates in real-time
+    listenForResetFlag();
     listenNames();
 });
 
