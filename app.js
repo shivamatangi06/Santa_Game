@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
 import { 
   getFirestore, collection, addDoc, deleteDoc, getDocs,
-  onSnapshot, query, orderBy, serverTimestamp, doc 
+  onSnapshot, query, orderBy, serverTimestamp, doc, setDoc
 } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
 import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
@@ -49,18 +49,38 @@ async function seedNamesIfEmpty() {
     for (const name of initialNames) {
       await addDoc(ref, { 
         name, 
-        addedAt: serverTimestamp() || new Date() // NEVER null
+        addedAt: serverTimestamp()
       });
     }
   }
 }
 
-/* Firestore Listener — FINAL VERSION */
+/* 🔥 LISTEN FOR ADMIN RESET */
+function listenResetFlag() {
+  const resetRef = doc(db, "system", "reset");
+
+  onSnapshot(resetRef, snap => {
+    if (!snap.exists()) return;
+
+    const serverResetTime = snap.data().resetAt?.toMillis();
+    const localResetTime = Number(localStorage.getItem("lastReset") || 0);
+
+    // If admin reset is newer → clear this user's pick
+    if (serverResetTime > localResetTime) {
+      localStorage.removeItem("pickedName");
+      localStorage.setItem("lastReset", serverResetTime);
+
+      pickBox.textContent = "Click to find Santa Child";
+      pickBox.disabled = false;
+      message.textContent = "";
+    }
+  });
+}
+
+/* Firestore Listener */
 function listenNames() {
   const ref = collection(db, NAMES_COLLECTION);
-
-  // Use ID ordering to avoid timestamp problems
-  const q = query(ref, orderBy("__name__"));
+  const q = query(ref, orderBy("__name__")); // no timestamp race
 
   onSnapshot(q, snapshot => {
     pickNames = snapshot.docs.map(d => ({
@@ -70,43 +90,39 @@ function listenNames() {
 
     const savedPick = localStorage.getItem("pickedName");
 
-    // 🔒 User already picked — lock UI permanently
+    // 🔒 KEEP NAME LOCKED UNTIL ADMIN RESET
     if (savedPick) {
       pickBox.textContent = savedPick;
       pickBox.disabled = true;
       message.textContent = "Your Santa child is:";
-      return; // DO NOT overwrite UI
-    }
-
-    // No names left
-    if (pickNames.length === 0) {
-      pickBox.textContent = "All Child paired! 🎉";
-      pickBox.disabled = true;
-      message.textContent = "";
       return;
     }
 
-    // Ready to pick
+    if (pickNames.length === 0) {
+      pickBox.textContent = "All Child paired! 🎉";
+      pickBox.disabled = true;
+      return;
+    }
+
     pickBox.textContent = "Click to find Santa Child";
     pickBox.disabled = false;
-    message.textContent = "";
   });
 }
 
-/* Pick Name — FINAL FIXED VERSION */
+/* Pick Name */
 async function pickName() {
   if (!pickNames.length || displayingPicked || localStorage.getItem("pickedName")) return;
 
   displayingPicked = true;
   pickBox.disabled = true;
 
-  // Freeze the list to avoid real-time update interruptions
   const available = [...pickNames];
 
-  // Rolling animation (UI only)
+  // Rolling animation
   await new Promise(resolve => {
     const interval = setInterval(() => {
-      pickBox.textContent = available[Math.floor(Math.random() * available.length)].name;
+      pickBox.textContent =
+        available[Math.floor(Math.random() * available.length)].name;
     }, 150);
 
     setTimeout(() => {
@@ -117,23 +133,19 @@ async function pickName() {
 
   const idx = Math.floor(Math.random() * available.length);
   const picked = available[idx];
-
   const docRef = doc(db, NAMES_COLLECTION, picked.id);
 
-  // MUST delete BEFORE showing final pick
   try {
     await deleteDoc(docRef);
   } catch (err) {
-    alert("Error deleting name. Please try again.\n" + err.message);
+    alert("Error deleting name: " + err.message);
     displayingPicked = false;
     pickBox.disabled = false;
     return;
   }
 
-  // Save the chosen name permanently
   localStorage.setItem("pickedName", picked.name);
 
-  // Show final pick
   pickBox.textContent = picked.name;
   message.textContent = "Your Santa child is:";
   pickBox.disabled = true;
@@ -148,9 +160,9 @@ adminPanelBtn.addEventListener("click", async () => {
   if (!email || !password) return;
 
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const user = await signInWithEmailAndPassword(auth, email, password);
 
-    if (userCredential.user.email === ADMIN_EMAIL) {
+    if (user.user.email === ADMIN_EMAIL) {
       resetBtn.style.display = "inline-block";
       alert("Admin logged in! Reset enabled.");
     } else {
@@ -161,7 +173,7 @@ adminPanelBtn.addEventListener("click", async () => {
   }
 });
 
-/* Reset Handler */
+/* ADMIN RESET — FIXED FOR ALL DEVICES */
 resetBtn.addEventListener("click", async () => {
   if (!confirm("Are you sure you want to reset everything?")) return;
 
@@ -169,23 +181,27 @@ resetBtn.addEventListener("click", async () => {
   pickBox.disabled = true;
   pickBox.textContent = "Resetting...";
 
-  const snap = await getDocs(collection(db, NAMES_COLLECTION));
+  const ref = collection(db, NAMES_COLLECTION);
+  const snap = await getDocs(ref);
 
-  // Delete all existing names
+  await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
+
   await Promise.all(
-    snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id)))
+    initialNames.map(name =>
+      addDoc(ref, {
+        name,
+        addedAt: serverTimestamp()
+      })
+    )
   );
 
-  // Add initial names back
-  await Promise.all(
-    initialNames.map(name => addDoc(collection(db, NAMES_COLLECTION), {
-      name,
-      addedAt: serverTimestamp() || new Date()
-    }))
-  );
+  // 🔥 SET GLOBAL RESET FLAG
+  await setDoc(doc(db, "system", "reset"), {
+    resetAt: serverTimestamp()
+  });
 
-  // Clear saved pick
   localStorage.removeItem("pickedName");
+  localStorage.setItem("lastReset", Date.now());
 
   pickBox.textContent = "Click to find Santa Child";
   pickBox.disabled = false;
@@ -195,5 +211,8 @@ resetBtn.addEventListener("click", async () => {
 });
 
 /* Initialize */
-seedNamesIfEmpty().then(listenNames);
+seedNamesIfEmpty().then(() => {
+  listenResetFlag();  // 🔥 first load reset listener
+  listenNames();
+});
 pickBox.addEventListener("click", pickName);
