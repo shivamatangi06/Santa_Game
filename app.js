@@ -1,269 +1,199 @@
-/* ------------------------------- FIREBASE IMPORTS ------------------------------- */
+/* Firebase imports */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
 import { 
-    getFirestore, collection, addDoc, deleteDoc, getDocs, 
-    onSnapshot, query, orderBy, serverTimestamp, doc, 
-    setDoc, enableIndexedDbPersistence, runTransaction
+  getFirestore, collection, addDoc, deleteDoc, getDocs,
+  onSnapshot, query, orderBy, serverTimestamp, doc 
 } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+
 import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js";
 
-/* ------------------------------- FIREBASE CONFIG ------------------------------- */
+/* Firebase Config */
 const firebaseConfig = {
-    apiKey: "AIzaSyCNc-y_OHfX_5Ryo8G_ldUYHn5702dx_NA",
-    authDomain: "christmas-santa-name-picker.firebaseapp.com",
-    projectId: "christmas-santa-name-picker",
-    storageBucket: "christmas-santa-name-picker.appspot.com",
-    messagingSenderId: "143601363304",
-    appId: "1:143601363304:web:7b5e4eefad9e737f98cedd"
+  apiKey: "AIzaSyCNc-y_OHfX_5Ryo8G_ldUYHn5702dx_NA",
+  authDomain: "christmas-santa-name-picker.firebaseapp.com",
+  projectId: "christmas-santa-name-picker",
+  storageBucket: "christmas-santa-name-picker.appspot.com",
+  messagingSenderId: "143601363304",
+  appId: "1:143601363304:web:7b5e4eefad9e737f98cedd"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-try { getAnalytics(app); } catch (e) {}
+try { getAnalytics(app); } catch(e){}
 
-/* Enable offline persistence */
-enableIndexedDbPersistence(db).catch(() => {});
-
-/* ------------------------------- CONSTANTS ------------------------------- */
+/* Constants */
 const NAMES_COLLECTION = "christmas_names";
 const initialNames = [
-    "Keerthy", "Manisha", "Lindsa", "Abhishek", "Akhilesh",
-    "Gopi", "Pavan", "Santosh", "Guru", "Balaji", "Vedant", "Kaushal"
+  "Keerthy","Manisha","Lindsa","Abhishek","Akhilesh",
+  "Gopi","Pavan","Santosh","Guru","Balaji","Vedant","Kaushal"
 ];
 const ADMIN_EMAIL = "grootsanta@gmail.in";
 
-/* DOM Elements */
+/* UI Elements */
 const pickBox = document.getElementById("pickBox");
 const message = document.getElementById("message");
 const resetBtn = document.getElementById("resetBtn");
 const adminPanelBtn = document.getElementById("adminPanelBtn");
 
-let pickNames = [];            // current names left
-let displayingPicked = false;  // locks UI while rolling/picking
+let pickNames = [];
+let displayingPicked = false;
 
-/* ------------------------------- RESET FLAG LISTENER ------------------------------- */
-function listenForResetFlag() {
-    const resetRef = doc(db, "config", "resetFlag");
-
-    onSnapshot(resetRef, (snap) => {
-        if (!snap.exists()) return;
-
-        const data = snap.data();
-        const lastReset = localStorage.getItem("lastResetTime");
-
-        if (data.time !== lastReset) {
-            // Clear picked name
-            localStorage.removeItem("pickedName");
-            localStorage.setItem("lastResetTime", data.time);
-            location.reload();
-        }
-    });
-}
-
-/* ------------------------------- SEED NAMES ------------------------------- */
+/* Seed Firestore if empty */
 async function seedNamesIfEmpty() {
-    const ref = collection(db, NAMES_COLLECTION);
-    const snap = await getDocs(ref);
+  const ref = collection(db, NAMES_COLLECTION);
+  const snap = await getDocs(ref);
 
-    if (snap.empty) {
-        for (const name of initialNames) {
-            await addDoc(ref, { name, addedAt: serverTimestamp() });
-        }
+  if (snap.empty) {
+    for (const name of initialNames) {
+      await addDoc(ref, { 
+        name, 
+        addedAt: serverTimestamp() || new Date() // NEVER null
+      });
     }
+  }
 }
 
-/* ------------------------------- REAL-TIME NAME LISTENER ------------------------------- */
+/* Firestore Listener — FINAL VERSION */
 function listenNames() {
-    const ref = collection(db, NAMES_COLLECTION);
-    const q = query(ref, orderBy("addedAt"));
+  const ref = collection(db, NAMES_COLLECTION);
 
-    onSnapshot(q, (snapshot) => {
-        pickNames = snapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
+  // Use ID ordering to avoid timestamp problems
+  const q = query(ref, orderBy("__name__"));
 
-        const pickedName = localStorage.getItem("pickedName");
+  onSnapshot(q, snapshot => {
+    pickNames = snapshot.docs.map(d => ({
+      id: d.id,
+      name: d.data().name
+    }));
 
-        if (pickedName && !pickNames.find(p => p.name === pickedName)) {
-            showPickedName(pickedName);
-        }
-        else if (pickNames.length === 0) {
-            pickBox.textContent = "All children have been successfully paired!";
-            pickBox.disabled = true;
-            pickBox.classList.add("disabled");
-            pickBox.style.backgroundColor = "#1e78c8";
-            message.textContent = "";
-        }
-        else {
-            if (!localStorage.getItem("pickedName")) resetPickUI();
-        }
-    });
-}
+    const savedPick = localStorage.getItem("pickedName");
 
-/* ------------------------------- RESET PICK UI ------------------------------- */
-function resetPickUI() {
-    pickBox.textContent = "Click to choose your child";
+    // 🔒 User already picked — lock UI permanently
+    if (savedPick) {
+      pickBox.textContent = savedPick;
+      pickBox.disabled = true;
+      message.textContent = "Your Santa child is:";
+      return; // DO NOT overwrite UI
+    }
+
+    // No names left
+    if (pickNames.length === 0) {
+      pickBox.textContent = "All Child paired! 🎉";
+      pickBox.disabled = true;
+      message.textContent = "";
+      return;
+    }
+
+    // Ready to pick
+    pickBox.textContent = "Click to find Santa Child";
     pickBox.disabled = false;
-    pickBox.classList.remove("disabled");
-    pickBox.style.backgroundColor = "#1e78c8";
-    pickBox.style.color = "#e9f6ff";
-    pickBox.style.pointerEvents = "auto";
     message.textContent = "";
+  });
 }
 
-/* ------------------------------- SHOW PICKED NAME ------------------------------- */
-function showPickedName(name) {
-    pickBox.textContent = name;
-    pickBox.disabled = true;
-    pickBox.classList.add("disabled");
-    pickBox.style.backgroundColor = "#1e78c8";
-    pickBox.style.color = "#e9f6ff";
-    pickBox.style.pointerEvents = "none";
-    message.textContent = "Meet your Santa child:";
-}
-
-/* ------------------------------- HELPER: sleep ------------------------------- */
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/* ------------------------------- PICK NAME ------------------------------- */
+/* Pick Name — FINAL FIXED VERSION */
 async function pickName() {
-    // 1️⃣ Prevent multiple picks
-    const pickedName = localStorage.getItem("pickedName");
-    if (displayingPicked || pickedName || !pickNames.length) return;
+  if (!pickNames.length || displayingPicked || localStorage.getItem("pickedName")) return;
 
-    displayingPicked = true;
+  displayingPicked = true;
+  pickBox.disabled = true;
 
-    // Lock UI immediately
-    pickBox.disabled = true;
-    pickBox.classList.add("disabled");
-    pickBox.style.pointerEvents = "none";
-    pickBox.style.backgroundColor = "#3ba1ff";
+  // Freeze the list to avoid real-time update interruptions
+  const available = [...pickNames];
 
-    /* ---------------------- Rolling animation ---------------------- */
-    const namesToRoll = initialNames.slice();
-    let index = 0;
-    const rollDuration = 3000;
-    const intervalTime = 120;
-    let elapsed = 0;
+  // Rolling animation (UI only)
+  await new Promise(resolve => {
+    const interval = setInterval(() => {
+      pickBox.textContent = available[Math.floor(Math.random() * available.length)].name;
+    }, 150);
 
-    await new Promise(resolve => {
-        const interval = setInterval(() => {
-            pickBox.textContent = namesToRoll[index];
-            index = (index + 1) % namesToRoll.length;
+    setTimeout(() => {
+      clearInterval(interval);
+      resolve();
+    }, 3000);
+  });
 
-            elapsed += intervalTime;
-            if (elapsed >= rollDuration) {
-                clearInterval(interval);
-                resolve();
-            }
-        }, intervalTime);
-    });
+  const idx = Math.floor(Math.random() * available.length);
+  const picked = available[idx];
 
-    /* ---------------------- Select final candidate ---------------------- */
-    if (!pickNames.length) {
-        displayingPicked = false;
-        resetPickUI();
-        return;
-    }
+  const docRef = doc(db, NAMES_COLLECTION, picked.id);
 
-    const finalIdx = Math.floor(Math.random() * pickNames.length);
-    const candidate = pickNames[finalIdx];
-
-    pickBox.textContent = candidate.name;
-    pickBox.style.backgroundColor = "#1e78c8";
-    pickBox.style.color = "#e9f6ff";
-    message.textContent = "Meet your Santa child:";
-
-    /* ---------------------- Transaction delete ---------------------- */
-    try {
-        await runTransaction(db, async (tx) => {
-            const docRef = doc(db, NAMES_COLLECTION, candidate.id);
-            const snap = await tx.get(docRef);
-            if (!snap.exists()) throw new Error("already-picked");
-            tx.delete(docRef);
-        });
-
-        // ✅ Store picked name locally AFTER successful delete
-        localStorage.setItem("pickedName", candidate.name);
-        pickNames.splice(finalIdx, 1);
-
-    } catch (err) {
-        console.warn("Pick failed:", err);
-        message.textContent = "Pick failed. Please reload the page.";
-        displayingPicked = false;
-        return;
-    }
-
-    // Lock final pick until admin reset
+  // MUST delete BEFORE showing final pick
+  try {
+    await deleteDoc(docRef);
+  } catch (err) {
+    alert("Error deleting name. Please try again.\n" + err.message);
     displayingPicked = false;
-    pickBox.disabled = true;
-    pickBox.style.pointerEvents = "none";
+    pickBox.disabled = false;
+    return;
+  }
+
+  // Save the chosen name permanently
+  localStorage.setItem("pickedName", picked.name);
+
+  // Show final pick
+  pickBox.textContent = picked.name;
+  message.textContent = "Your Santa child is:";
+  pickBox.disabled = true;
+
+  displayingPicked = false;
 }
 
-/* ------------------------------- ADMIN LOGIN ------------------------------- */
+/* Admin Login */
 adminPanelBtn.addEventListener("click", async () => {
-    const email = prompt("Enter admin email:");
-    const password = prompt("Enter admin password:");
-    if (!email || !password) return;
+  const email = prompt("Enter admin email:");
+  const password = prompt("Enter admin password:");
+  if (!email || !password) return;
 
-    try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        if (userCredential.user.email === ADMIN_EMAIL) {
-            resetBtn.style.display = "inline-block";
-            alert("Admin logged in! Reset enabled.");
-        } else {
-            alert("Unauthorized user.");
-        }
-    } catch (e) {
-        alert("Login failed: " + e.message);
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+    if (userCredential.user.email === ADMIN_EMAIL) {
+      resetBtn.style.display = "inline-block";
+      alert("Admin logged in! Reset enabled.");
+    } else {
+      alert("You are NOT authorized.");
     }
+  } catch (e) {
+    alert("Login failed: " + e.message);
+  }
 });
 
-/* ------------------------------- RESET BUTTON ------------------------------- */
+/* Reset Handler */
 resetBtn.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to reset everything?")) return;
+  if (!confirm("Are you sure you want to reset everything?")) return;
 
-    resetBtn.style.display = "none";
-    localStorage.removeItem("pickedName");
+  resetBtn.disabled = true;
+  pickBox.disabled = true;
+  pickBox.textContent = "Resetting...";
 
-    const snap = await getDocs(collection(db, NAMES_COLLECTION));
-    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id))));
+  const snap = await getDocs(collection(db, NAMES_COLLECTION));
 
-    await Promise.all(initialNames.map(name =>
-        addDoc(collection(db, NAMES_COLLECTION), {
-            name,
-            addedAt: serverTimestamp()
-        })
-    ));
+  // Delete all existing names
+  await Promise.all(
+    snap.docs.map(d => deleteDoc(doc(db, NAMES_COLLECTION, d.id)))
+  );
 
-    // Fire reset flag → all devices reload
-    await setDoc(doc(db, "config", "resetFlag"), {
-        time: Date.now().toString()
-    });
+  // Add initial names back
+  await Promise.all(
+    initialNames.map(name => addDoc(collection(db, NAMES_COLLECTION), {
+      name,
+      addedAt: serverTimestamp() || new Date()
+    }))
+  );
 
-    location.reload();
+  // Clear saved pick
+  localStorage.removeItem("pickedName");
+
+  pickBox.textContent = "Click to find Santa Child";
+  pickBox.disabled = false;
+
+  resetBtn.disabled = false;
+  resetBtn.style.display = "none";
 });
 
-/* ------------------------------- SNOWFALL EFFECT ------------------------------- */
-function createSnowflake() {
-    const s = document.createElement("div");
-    s.className = "snowflake";
-    s.style.left = Math.random() * window.innerWidth + "px";
-    s.style.fontSize = `${15 + Math.random() * 14}px`;
-    s.style.animationDuration = `${4 + Math.random() * 3}s`;
-    s.textContent = "❄";
-    s.style.color = "#fff";
-    document.body.appendChild(s);
-    setTimeout(() => s.remove(), 8000);
-}
-setInterval(createSnowflake, window.innerWidth < 600 ? 600 : 300);
-
-/* ------------------------------- INIT ------------------------------- */
-seedNamesIfEmpty().then(() => {
-    listenForResetFlag();
-    listenNames();
-});
-
+/* Initialize */
+seedNamesIfEmpty().then(listenNames);
 pickBox.addEventListener("click", pickName);
